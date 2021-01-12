@@ -1,0 +1,73 @@
+From f2f18540b8f39d1c4fa8fbf5d1e2de29b92eceb1 Mon Sep 17 00:00:00 2001
+From: mar-v-in <github@rvin.mooo.com>
+Date: Mon, 21 Dec 2015 22:11:35 +0100
+Subject: [PATCH] Add support for fake signatures, enabled per app by dynamic
+ perms
+
+Change-Id: I456650338399abcbc22f97fa09fe50eb648b9e2e
+---
+ core/res/AndroidManifest.xml                  |  7 +++++
+ .../server/pm/PackageManagerService.java      | 23 ++++++++++++++--
+ 3 files changed, 28 insertions(+), 2 deletions(-)
+
+diff --git a/core/res/AndroidManifest.xml b/core/res/AndroidManifest.xml
+index f920b2de7e1..edfdaa4c705 100644
+--- a/core/res/AndroidManifest.xml
++++ b/core/res/AndroidManifest.xml
+@@ -2629,6 +2629,13 @@
+         android:description="@string/permdesc_getPackageSize"
+         android:protectionLevel="normal" />
+ 
++    <!-- @hide Allows an application to change the package signature as
++         seen by applications -->
++    <permission android:name="android.permission.FAKE_PACKAGE_SIGNATURE"
++        android:protectionLevel="dangerous"
++        android:label="@string/permlab_fakePackageSignature"
++        android:description="@string/permdesc_fakePackageSignature" />
++
+     <!-- @deprecated No longer useful, see
+          {@link android.content.pm.PackageManager#addPackageToPreferred}
+          for details. -->
+diff --git a/services/core/java/com/android/server/pm/PackageManagerService.java b/services/core/java/com/android/server/pm/PackageManagerService.java
+index 360e5bc1b24..90ed7d2ffcc 100644
+--- a/services/core/java/com/android/server/pm/PackageManagerService.java
++++ b/services/core/java/com/android/server/pm/PackageManagerService.java
+@@ -4169,8 +4169,9 @@ public class PackageManagerService extends IPackageManager.Stub
+             final Set<String> permissions = ArrayUtils.isEmpty(p.requestedPermissions)
+                     ? Collections.emptySet() : permissionsState.getPermissions(userId);
+ 
+-            PackageInfo packageInfo = PackageParser.generatePackageInfo(p, gids, flags,
+-                    ps.firstInstallTime, ps.lastUpdateTime, permissions, state, userId);
++            PackageInfo packageInfo = mayFakeSignature(p, PackageParser
++                    .generatePackageInfo(p, gids, flags, ps.firstInstallTime,
++                    ps.lastUpdateTime, permissions, state, userId), permissions);
+ 
+             if (packageInfo == null) {
+                 return null;
+@@ -4206,6 +4207,24 @@ public class PackageManagerService extends IPackageManager.Stub
+         }
+     }
+ 
++    private PackageInfo mayFakeSignature(PackageParser.Package p, PackageInfo pi,
++            Set<String> permissions) {
++        try {
++            if (permissions.contains("android.permission.FAKE_PACKAGE_SIGNATURE")
++                    && p.applicationInfo.targetSdkVersion > Build.VERSION_CODES.LOLLIPOP_MR1
++                    && p.mAppMetaData != null) {
++                String sig = p.mAppMetaData.getString("fake-signature");
++                if (sig != null) {
++                    pi.signatures = new Signature[] {new Signature(sig)};
++                }
++            }
++        } catch (Throwable t) {
++            // We should never die because of any failures, this is system code!
++            Log.w("PackageManagerService.FAKE_PACKAGE_SIGNATURE", t);
++        }
++        return pi;
++    }
++
+     @Override
+     public void checkPackageStartable(String packageName, int userId) {
+         final int callingUid = Binder.getCallingUid();
+-- 
+2.25.1
